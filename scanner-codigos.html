@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1a2e4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Scanner Códigos</title>
+
+<!-- SheetJS para generar Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- ZXing para lectura de códigos de barra por cámara -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.18.6/zxing.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0f1c2e;
+    --surface: #1a2e4a;
+    --surface2: #22395c;
+    --accent: #00c4a0;
+    --accent2: #0097e6;
+    --danger: #e74c3c;
+    --text: #e8f0fe;
+    --muted: #7a93b4;
+    --border: #2d4a6e;
+    --radius: 12px;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--surface);
+    padding: 14px 18px 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header .icon { font-size: 22px; }
+  header h1 { font-size: 17px; font-weight: 600; letter-spacing: -0.3px; }
+  header .badge {
+    margin-left: auto;
+    background: var(--accent);
+    color: #0f1c2e;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    min-width: 28px;
+    text-align: center;
+  }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 11px 0;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .2s;
+  }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  /* ── PANELS ── */
+  .panel { display: none; flex: 1; flex-direction: column; padding: 16px; gap: 14px; overflow-y: auto; }
+  .panel.active { display: flex; }
+
+  /* ── CARD ── */
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .card-header {
+    padding: 12px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .6px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── CÁMARA ── */
+  .video-wrapper {
+    position: relative;
+    aspect-ratio: 4/3;
+    background: #000;
+    overflow: hidden;
+  }
+  #video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .scan-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .scan-frame {
+    width: 65%;
+    aspect-ratio: 3/1;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    box-shadow: 0 0 0 9999px rgba(0,0,0,.45);
+    position: relative;
+  }
+  .scan-line {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    animation: scan 2s ease-in-out infinite;
+    box-shadow: 0 0 8px var(--accent);
+  }
+  @keyframes scan {
+    0% { top: 0; }
+    50% { top: calc(100% - 2px); }
+    100% { top: 0; }
+  }
+  .cam-status {
+    padding: 10px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .cam-status.ok { color: var(--accent); }
+  .cam-status.err { color: var(--danger); }
+
+  /* ── BTN CÁMARA ── */
+  .btn-cam {
+    margin: 0 14px 14px;
+    padding: 11px;
+    border-radius: 8px;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .btn-cam:active { opacity: .75; }
+  .btn-start { background: var(--accent); color: #0f1c2e; }
+  .btn-stop  { background: var(--danger); color: #fff; }
+  .btn-flip  { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+  /* ── ENTRADA MANUAL ── */
+  .input-row {
+    display: flex;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+  .input-row input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 15px;
+    font-family: var(--font);
+    outline: none;
+    transition: border-color .2s;
+  }
+  .input-row input:focus { border-color: var(--accent); }
+  .input-row input::placeholder { color: var(--muted); }
+  .btn-add {
+    background: var(--accent2);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 20px;
+    cursor: pointer;
+    font-weight: 700;
+    transition: opacity .15s;
+  }
+  .btn-add:active { opacity: .7; }
+
+  /* ── LISTA ── */
+  .list-wrap { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+
+  .item-row {
+    display: flex;
+    align-items: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    gap: 10px;
+    animation: slideIn .15s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+
+  .item-num {
+    font-size: 11px;
+    color: var(--muted);
+    min-width: 22px;
+    text-align: right;
+  }
+  .item-code {
+    flex: 1;
+    font-size: 14px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: .5px;
+  }
+  .item-qty {
+    background: var(--surface2);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 32px;
+    text-align: center;
+  }
+  .item-time { font-size: 11px; color: var(--muted); }
+  .btn-del {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color .15s;
+  }
+  .btn-del:hover { color: var(--danger); }
+
+  .empty-msg {
+    text-align: center;
+    color: var(--muted);
+    padding: 32px 16px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .empty-icon { font-size: 36px; display: block; margin-bottom: 10px; }
+
+  /* ── PANEL COMPARTIR ── */
+  .share-info {
+    background: var(--surface2);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    border: 1px solid var(--border);
+  }
+  .share-info strong { color: var(--text); }
+
+  .share-btns { display: flex; flex-direction: column; gap: 10px; }
+
+  .btn-share {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    text-decoration: none;
+    color: inherit;
+  }
+  .btn-share:active { opacity: .75; transform: scale(.98); }
+  .btn-excel { background: #1d6f42; color: #fff; }
+  .btn-whatsapp { background: #25d366; color: #fff; }
+  .btn-email { background: var(--accent2); color: #fff; }
+  .btn-clear { background: var(--surface2); color: var(--danger); border: 1px solid var(--border); }
+
+  .btn-share .icon { font-size: 20px; }
+  .btn-share .lbl { flex: 1; text-align: left; }
+  .btn-share .sub { font-size: 11px; font-weight: 400; opacity: .75; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .stat-box {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .stat-box .val { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-box .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 20px;
+    border-radius: 30px;
+    font-size: 13px;
+    font-weight: 600;
+    z-index: 999;
+    transition: transform .3s ease;
+    white-space: nowrap;
+  }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+
+  /* ── FOOTER ── */
+  footer {
+    padding: 10px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="icon">📦</span>
+  <h1>Scanner Códigos</h1>
+  <span class="badge" id="badge">0</span>
+</header>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('scan')">📷 Escanear</button>
+  <button class="tab-btn" onclick="showTab('list')">📋 Lista</button>
+  <button class="tab-btn" onclick="showTab('share')">📤 Compartir</button>
+</div>
+
+<!-- ── PANEL ESCANEAR ── -->
+<div class="panel active" id="panel-scan">
+
+  <div class="card">
+    <div class="card-header">Cámara</div>
+    <div class="video-wrapper">
+      <video id="video" autoplay playsinline muted></video>
+      <div class="scan-overlay">
+        <div class="scan-frame">
+          <div class="scan-line" id="scanLine"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cam-status" id="camStatus">Presiona Iniciar para activar la cámara</div>
+    <div style="display:flex;gap:8px;padding:0 14px 14px">
+      <button class="btn-cam btn-start" id="btnStart" onclick="startCamera()" style="flex:2">▶ Iniciar cámara</button>
+      <button class="btn-cam btn-flip" id="btnFlip" onclick="flipCamera()" style="flex:1;display:none">🔄</button>
+      <button class="btn-cam btn-stop" id="btnStop" onclick="stopCamera()" style="flex:1;display:none">■ Detener</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">Ingreso manual</div>
+    <div class="input-row">
+      <input type="text" id="manualInput" placeholder="Escribe o pega el código" inputmode="numeric"
+             onkeydown="if(event.key==='Enter') addManual()">
+      <button class="btn-add" onclick="addManual()">+</button>
+    </div>
+  </div>
+
+  <!-- Último código escaneado -->
+  <div class="card" id="lastCard" style="display:none">
+    <div class="card-header">Último código</div>
+    <div style="padding:12px 14px;font-size:18px;font-family:'Courier New',monospace;letter-spacing:1px;color:var(--accent)" id="lastCode"></div>
+  </div>
+</div>
+
+<!-- ── PANEL LISTA ── -->
+<div class="panel" id="panel-list">
+  <div id="listContent">
+    <div class="empty-msg">
+      <span class="empty-icon">🔍</span>
+      Aún no hay códigos.<br>Ve a <strong>Escanear</strong> para comenzar.
+    </div>
+  </div>
+</div>
+
+<!-- ── PANEL COMPARTIR ── -->
+<div class="panel" id="panel-share">
+
+  <div class="stat-grid">
+    <div class="stat-box">
+      <div class="val" id="statTotal">0</div>
+      <div class="lbl">Códigos únicos</div>
+    </div>
+    <div class="stat-box">
+      <div class="val" id="statItems">0</div>
+      <div class="lbl">Total ítems</div>
+    </div>
+  </div>
+
+  <div class="share-info">
+    <strong>¿Cómo se exporta?</strong><br>
+    Excel incluye: número, código, cantidad y hora de captura.
+    WhatsApp envía un resumen de texto. Correo adjunta el Excel generado.
+  </div>
+
+  <div class="share-btns">
+    <button class="btn-share btn-excel" onclick="downloadExcel()">
+      <span class="icon">📊</span>
+      <span class="lbl">Descargar Excel<br><span class="sub">.xlsx con todos los códigos</span></span>
+    </button>
+    <button class="btn-share btn-whatsapp" onclick="shareWhatsApp()">
+      <span class="icon">💬</span>
+      <span class="lbl">Enviar por WhatsApp<br><span class="sub">Resumen de texto</span></span>
+    </button>
+    <button class="btn-share btn-email" onclick="shareEmail()">
+      <span class="icon">✉️</span>
+      <span class="lbl">Enviar por Correo<br><span class="sub">Resumen en cuerpo del email</span></span>
+    </button>
+    <button class="btn-share btn-clear" onclick="clearAll()">
+      <span class="icon">🗑️</span>
+      <span class="lbl">Limpiar lista<br><span class="sub">Elimina todos los registros</span></span>
+    </button>
+  </div>
+</div>
+
+<footer>Scanner Códigos · MasterAppCL · Patricio Navarro Reyes</footer>
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+//  ESTADO
+// ══════════════════════════════════════════════
+const STORAGE_KEY = 'scannerCodigos_v1';
+let codes = []; // { code, qty, time }
+let stream = null;
+let codeReader = null;
+let scanning = false;
+let facingMode = 'environment';
+let lastScanned = '';
+let lastScannedTs = 0;
+
+// ── Cargar desde localStorage ──
+function loadData() {
+  try { codes = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch { codes = []; }
+}
+function saveData() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
+}
+
+// ══════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════
+function showTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn')[['scan','list','share'].indexOf(name)].classList.add('active');
+  if (name === 'list') renderList();
+  if (name === 'share') renderStats();
+}
+
+// ══════════════════════════════════════════════
+//  CÁMARA / ESCÁNER
+// ══════════════════════════════════════════════
+async function startCamera() {
+  if (scanning) return;
+  const status = document.getElementById('camStatus');
+  status.className = 'cam-status';
+  status.textContent = 'Activando cámara…';
+
+  try {
+    // Si ZXing está disponible, usarlo; si no, fallback básico
+    if (typeof ZXing !== 'undefined') {
+      await startZXing();
+    } else {
+      await startBasicCamera();
+    }
+  } catch (e) {
+    status.className = 'cam-status err';
+    status.textContent = '⚠️ ' + (e.message || 'Error al acceder a la cámara');
+  }
+}
+
+async function startZXing() {
+  codeReader = new ZXing.BrowserMultiFormatReader();
+  const videoEl = document.getElementById('video');
+  scanning = true;
+  toggleCamButtons(true);
+
+  const status = document.getElementById('camStatus');
+  status.className = 'cam-status ok';
+  status.textContent = '✅ Cámara activa — apunta al código';
+
+  try {
+    await codeReader.decodeFromConstraints(
+      { video: { facingMode } },
+      videoEl,
+      (result, err) => {
+        if (result) {
+          const code = result.getText();
+          const now = Date.now();
+          if (code !== lastScanned || now - lastScannedTs > 2000) {
+            lastScanned = code;
+            lastScannedTs = now;
+            addCode(code);
+            beep();
+          }
+        }
+      }
+    );
+  } catch(e) {
+    stopCamera();
+    throw e;
+  }
+}
+
+async function startBasicCamera() {
+  stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } });
+  const videoEl = document.getElementById('video');
+  videoEl.srcObject = stream;
+  scanning = true;
+  toggleCamButtons(true);
+  const status = document.getElementById('camStatus');
+  status.className = 'cam-status ok';
+  status.textContent = '📷 Cámara activa — ingresa el código manualmente';
+}
+
+function stopCamera() {
+  if (codeReader) { try { codeReader.reset(); } catch(e){} codeReader = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  const v = document.getElementById('video');
+  v.srcObject = null;
+  scanning = false;
+  toggleCamButtons(false);
+  document.getElementById('camStatus').className = 'cam-status';
+  document.getElementById('camStatus').textContent = 'Cámara detenida';
+}
+
+async function flipCamera() {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  stopCamera();
+  await new Promise(r => setTimeout(r, 300));
+  startCamera();
+}
+
+function toggleCamButtons(on) {
+  document.getElementById('btnStart').style.display = on ? 'none' : 'flex';
+  document.getElementById('btnStop').style.display = on ? 'flex' : 'none';
+  document.getElementById('btnFlip').style.display = on ? 'flex' : 'none';
+}
+
+// ── Beep ──
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.3, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    o.start(); o.stop(ctx.currentTime + 0.15);
+  } catch(e){}
+}
+
+// ══════════════════════════════════════════════
+//  GESTIÓN DE CÓDIGOS
+// ══════════════════════════════════════════════
+function addCode(raw) {
+  const code = raw.trim();
+  if (!code) return;
+  const existing = codes.find(c => c.code === code);
+  if (existing) {
+    existing.qty++;
+    existing.time = nowStr();
+    toast(`+1 → ${code}`);
+  } else {
+    codes.unshift({ code, qty: 1, time: nowStr() });
+    toast(`✔ ${code}`);
+  }
+  saveData();
+  updateBadge();
+  showLastCode(code);
+}
+
+function addManual() {
+  const inp = document.getElementById('manualInput');
+  const val = inp.value.trim();
+  if (!val) return;
+  addCode(val);
+  inp.value = '';
+  inp.focus();
+}
+
+function removeCode(idx) {
+  if (!confirm('¿Eliminar este código?')) return;
+  codes.splice(idx, 1);
+  saveData();
+  updateBadge();
+  renderList();
+}
+
+function clearAll() {
+  if (!codes.length) { toast('La lista ya está vacía'); return; }
+  if (!confirm(`¿Eliminar los ${codes.length} código(s) de la lista?`)) return;
+  codes = [];
+  saveData();
+  updateBadge();
+  renderList();
+  renderStats();
+  toast('Lista limpiada');
+}
+
+function nowStr() {
+  return new Date().toLocaleTimeString('es-CL', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function showLastCode(code) {
+  document.getElementById('lastCard').style.display = 'block';
+  document.getElementById('lastCode').textContent = code;
+}
+
+// ══════════════════════════════════════════════
+//  RENDER LISTA
+// ══════════════════════════════════════════════
+function renderList() {
+  const wrap = document.getElementById('listContent');
+  if (!codes.length) {
+    wrap.innerHTML = `<div class="empty-msg"><span class="empty-icon">🔍</span>Aún no hay códigos.<br>Ve a <strong>Escanear</strong> para comenzar.</div>`;
+    return;
+  }
+  let html = `<div class="list-wrap">`;
+  codes.forEach((c, i) => {
+    html += `
+    <div class="item-row">
+      <span class="item-num">${codes.length - i}</span>
+      <span class="item-code">${escHtml(c.code)}</span>
+      <span class="item-qty">×${c.qty}</span>
+      <span class="item-time">${c.time}</span>
+      <button class="btn-del" onclick="removeCode(${i})" title="Eliminar">✕</button>
+    </div>`;
+  });
+  html += `</div>`;
+  wrap.innerHTML = html;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ══════════════════════════════════════════════
+//  STATS
+// ══════════════════════════════════════════════
+function renderStats() {
+  document.getElementById('statTotal').textContent = codes.length;
+  document.getElementById('statItems').textContent = codes.reduce((a,c) => a + c.qty, 0);
+}
+
+function updateBadge() {
+  document.getElementById('badge').textContent = codes.length;
+}
+
+// ══════════════════════════════════════════════
+//  EXPORTAR EXCEL
+// ══════════════════════════════════════════════
+function downloadExcel() {
+  if (!codes.length) { toast('No hay códigos para exportar'); return; }
+
+  const wb = XLSX.utils.book_new();
+  const fecha = new Date().toLocaleDateString('es-CL');
+
+  // Hoja principal
+  const rows = [
+    ['N°', 'Código de Barra', 'Cantidad', 'Hora Captura']
+  ];
+  codes.forEach((c, i) => {
+    rows.push([codes.length - i, c.code, c.qty, c.time]);
+  });
+  rows.push(['', '', '', '']);
+  rows.push(['Total ítems', '', codes.reduce((a,c) => a + c.qty, 0), '']);
+  rows.push(['Exportado', '', fecha, '']);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+
+  // Ancho columnas
+  ws['!cols'] = [{ wch: 5 }, { wch: 24 }, { wch: 10 }, { wch: 12 }];
+
+  XLSX.utils.book_append_sheet(wb, ws, 'Códigos');
+
+  const filename = `codigos_${fecha.replace(/\//g,'-')}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  toast('📊 Excel descargado');
+}
+
+// ══════════════════════════════════════════════
+//  WHATSAPP
+// ══════════════════════════════════════════════
+function shareWhatsApp() {
+  if (!codes.length) { toast('No hay códigos para compartir'); return; }
+  const fecha = new Date().toLocaleDateString('es-CL');
+  let msg = `📦 *Códigos Escaneados*\n📅 ${fecha}\n`;
+  msg += `━━━━━━━━━━━━━━━\n`;
+  codes.forEach((c, i) => {
+    msg += `${codes.length - i}. \`${c.code}\`  ×${c.qty}  (${c.time})\n`;
+  });
+  msg += `━━━━━━━━━━━━━━━\n`;
+  msg += `Total ítems: ${codes.reduce((a,c) => a + c.qty, 0)}\n`;
+  msg += `_Generado con Scanner Códigos_`;
+
+  const url = 'https://wa.me/?text=' + encodeURIComponent(msg);
+  window.open(url, '_blank');
+}
+
+// ══════════════════════════════════════════════
+//  EMAIL
+// ══════════════════════════════════════════════
+function shareEmail() {
+  if (!codes.length) { toast('No hay códigos para enviar'); return; }
+  const fecha = new Date().toLocaleDateString('es-CL');
+  const asunto = `Códigos escaneados - ${fecha}`;
+  let cuerpo = `Códigos Escaneados\nFecha: ${fecha}\n\n`;
+  cuerpo += `N°\tCódigo\t\tCantidad\tHora\n`;
+  cuerpo += `---\t------\t\t--------\t----\n`;
+  codes.forEach((c, i) => {
+    cuerpo += `${codes.length - i}\t${c.code}\t\t${c.qty}\t\t${c.time}\n`;
+  });
+  cuerpo += `\nTotal ítems: ${codes.reduce((a,c) => a + c.qty, 0)}\n`;
+  cuerpo += `\nGenerado con Scanner Códigos (MasterAppCL)`;
+
+  window.location.href = `mailto:?subject=${encodeURIComponent(asunto)}&body=${encodeURIComponent(cuerpo)}`;
+}
+
+// ══════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+loadData();
+updateBadge();
+</script>
+</body>
+</html>
